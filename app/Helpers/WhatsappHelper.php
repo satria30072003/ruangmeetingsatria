@@ -7,7 +7,7 @@ class WhatsappHelper
 {
     public static function sendMessage($target, $message)
     {
-        $token = env('WHATSAPP_API_KEY');
+        $token = env('FONNTE_TOKEN');
         $curl = curl_init();
         curl_setopt_array($curl, [
             CURLOPT_URL => "https://api.fonnte.com/send",
@@ -25,5 +25,6 @@ class WhatsappHelper
         $response = curl_exec($curl);
         curl_close($curl);
         return $response;
+        dd($response);
     }
 }

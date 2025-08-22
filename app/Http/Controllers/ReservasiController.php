@@ -96,22 +96,113 @@ class ReservasiController extends Controller
 
     public function update(Request $request, Reservasi $reservasi)
     {
+        // Validasi data
         $request->validate([
-            'nama_pemesan' => 'required|string|max:255',
             'room_id' => 'required|exists:rooms,id',
             'tanggal' => 'required|date',
             'waktu_mulai' => 'required',
-            'waktu_selesai' => 'required|after:waktu_mulai',
-            'email' => 'required|email|max:255',
-            'no_whatsapp' => 'required|max:20',
-            'status' => 'nullable|in:menunggu,disetujui,ditolak'
-
+            'waktu_selesai' => 'required',
+            'email' => 'required|email',
+            'no_whatsapp' => 'required',
+            'status' => 'nullable',
         ]);
 
+        // Update reservasi
         $reservasi->update($request->all());
+
+        // Siapkan data dari DB
+        $roomName    = $reservasi->room->name ?? 'Ruangan tidak diketahui';
+        $tanggal     = date('d-m-Y', strtotime($reservasi->tanggal));
+        $waktuMulai  = $reservasi->waktu_mulai;
+        $waktuSelesai = $reservasi->waktu_selesai;
+
+        // Nomor tujuan (user + admin)
+        $targets = $reservasi->no_whatsapp . ',' . env('ADMIN_WA');
+
+        // API Key dari .env
+        $token = env('WHATSAPP_API_KEY');
+
+        // Kalau status disetujui
+        if ($request->status === 'disetujui') {
+            $message = "✅ *Reservasi Disetujui* ✅\n\n"
+                . "Detail reservasi:\n"
+                . "📍 Ruangan : {$roomName}\n"
+                . "📅 Tanggal : {$tanggal}\n"
+                . "⏰ Jam     : {$waktuMulai} - {$waktuSelesai}\n\n"
+                . "Silakan hadir sesuai jadwal 🙏";
+
+            $this->sendWhatsapp($targets, $message, $token);
+        }
+
+        // Kalau status ditolak
+if ($request->status === 'ditolak') {
+    $message = "❌ *Reservasi Ditolak* ❌\n\n"
+        . "Detail reservasi:\n"
+        . "📍 Ruangan : {$roomName}\n"
+        . "📅 Tanggal : {$tanggal}\n"
+        . "⏰ Jam     : {$waktuMulai} - {$waktuSelesai}\n\n"
+        . "Mohon maaf, reservasi Anda tidak dapat diproses 🙏";
+
+    // kirim ke user + admin
+    $targets = $reservasi->no_whatsapp . ',' . env('ADMIN_WA');
+
+    $response = WhatsappHelper::sendMessage($targets, $message);
+
+    if (!$response || (isset($response['status']) && $response['status'] != true)) {
+        return redirect()
+            ->route('reservasi.index')
+            ->with('error', '❌ Reservasi berhasil ditolak, tapi notifikasi WA gagal terkirim.');
+    }
+
+    return redirect()
+        ->route('reservasi.index')
+        ->with('success', '❌ Reservasi ditolak dan notifikasi WA berhasil terkirim.');
+}
+
 
         return redirect()->route('reservasi.index')->with('success', 'Reservasi berhasil diperbarui.');
     }
+
+    /**
+     * Fungsi bantu untuk kirim WhatsApp via Fonnte
+     */
+    private function sendWhatsapp($target, $message, $token)
+    {
+        $curl = curl_init();
+        curl_setopt_array($curl, [
+            CURLOPT_URL => 'https://api.fonnte.com/send',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => [
+                'target' => $target,
+                'message' => $message,
+                'countryCode' => '62',
+            ],
+            CURLOPT_HTTPHEADER => [
+                'Authorization: ' . $token,
+            ],
+        ]);
+
+        $response = curl_exec($curl);
+
+        if (curl_errno($curl)) {
+            return response()->json([
+                'error' => 'Gagal mengirim pesan WhatsApp: ' . curl_error($curl)
+            ], 500);
+        } else {
+            $responseData = json_decode($response, true);
+            if (isset($responseData['error'])) {
+                return response()->json([
+                    'error' => 'Gagal mengirim pesan WhatsApp: ' . $responseData['error']
+                ], 500);
+            }
+            return response()->json(['success' => 'Pesan WhatsApp berhasil dikirim.']);
+        }
+
+        curl_close($curl);
+    }
+
+
 
     public function destroy(Reservasi $reservasi)
     {
@@ -126,60 +217,10 @@ class ReservasiController extends Controller
         // Update status menjadi disetujui
         $reservasi->update(['status' => 'disetujui']);
 
-        // Ambil data ruangan
-        $room = $reservasi->room;
-
-        // Nomor WA admin dari .env
-        $adminNumber = env('ADMIN_WA');
-
-        // Nomor WA customer dari tabel reservasi
-        $customerNumber = $reservasi->no_whatsapp;
-
-        // Token API WhatsApp (Fonnte)
-        $token = env('WHATSAPP_API_KEY');
-
-        // Pesan untuk admin
-        $adminMessage = "Reservasi Disetujui ✅\n\n" .
-            "Nama: {$reservasi->nama_pemesan}\n" .
-            "Ruangan: {$room->name}\n" .
-            "Tanggal: {$reservasi->tanggal}\n" .
-            "Waktu: {$reservasi->waktu_mulai} - {$reservasi->waktu_selesai}";
-
-        // Pesan untuk customer
-        $userMessage = "Halo {$reservasi->nama_pemesan}, reservasi Anda untuk ruangan '{$room->name}' pada {$reservasi->tanggal} telah *disetujui* ✅.";
-
-        // Fungsi kirim WA via Fonnte + logging
-        $sendWhatsapp = function ($target, $message) use ($token) {
-            $curl = curl_init();
-            curl_setopt_array($curl, [
-                CURLOPT_URL => "https://api.fonnte.com/send",
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => [
-                    'target' => $target,
-                    'message' => $message,
-                ],
-                CURLOPT_HTTPHEADER => [
-                    "Authorization: $token"
-                ],
-            ]);
-            $response = curl_exec($curl);
-            curl_close($curl);
-        };
-
-        // Kirim ke admin
-        if (!empty($adminNumber)) {
-            $sendWhatsapp($adminNumber, $adminMessage);
-        }
-
-        // Kirim ke customer
-        if (!empty($customerNumber)) {
-            $sendWhatsapp($customerNumber, $userMessage);
-        }
-
         return redirect()->route('reservasi.index')
-            ->with('success', 'Reservasi disetujui & WA terkirim.');
+            ->with('success', 'Reservasi berhasil disetujui.');
     }
+
 
 
 

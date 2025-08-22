@@ -55,23 +55,16 @@
                 value="{{ old('no_whatsapp', $reservasi->no_whatsapp) }}">
         </div>
         <div class="mb-3">
-            @if(auth()->user()->role === 'admin' )
             <label for="status">Status</label>
-            <select id="status" name="status" class="form-control">
+            <select name="status" class="form-control">
                 <option value="menunggu" {{ old('status', $reservasi->status) == 'menunggu' ? 'selected' : '' }}>
-                    Menunggu
-                </option>
+                    Menunggu</option>
                 <option value="disetujui" {{ old('status', $reservasi->status) == 'disetujui' ? 'selected' : '' }}>
-                    Disetujui
-                </option>
-                <option value="ditolak" {{ old('status', $reservasi->status) == 'ditolak' ? 'selected' : '' }}>
-                    Ditolak
+                    Disetujui</option>
+                <option value="ditolak" {{ old('status', $reservasi->status) == 'ditolak' ? 'selected' : '' }}>Ditolak
                 </option>
             </select>
-            @endif
         </div>
-
-
 
         <button type="submit" class="btn btn-primary">Update</button>
         <a href="{{ route('reservasi.index') }}" class="btn btn-secondary">Batal</a>
